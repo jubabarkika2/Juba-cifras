@@ -43,9 +43,18 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   const [isWarmupActive, setIsWarmupActive] = useState(false);
 
   // Synchronized BPM states
-  const [bpm, setBpm] = useState<number>(() => song.bpm || 120);
-  const [scrollMode, setScrollMode] = useState<'manual' | 'bpm'>(() => song.bpm ? 'bpm' : 'manual');
-  const [bpmScrollFactor, setBpmScrollFactor] = useState<number>(5);
+  const [bpm, setBpm] = useState<number>(() => {
+    const savedBpm = localStorage.getItem(`cifras-bpm-${song.id}`);
+    return savedBpm ? Number(savedBpm) : (song.bpm || 120);
+  });
+  const [scrollMode, setScrollMode] = useState<'manual' | 'bpm'>(() => {
+    const savedBpm = localStorage.getItem(`cifras-bpm-${song.id}`);
+    return (song.bpm || savedBpm) ? 'bpm' : 'manual';
+  });
+  const [bpmScrollFactor, setBpmScrollFactor] = useState<number>(() => {
+    const saved = localStorage.getItem('cifras-bpmScrollFactor');
+    return saved ? Number(saved) : 5;
+  });
   const [enableMetronomeVisual, setEnableMetronomeVisual] = useState<boolean>(false);
   const [metronomeState, setMetronomeState] = useState<boolean>(false);
   const lastTapRef = useRef<number[]>([]);
@@ -54,8 +63,10 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   useEffect(() => {
     window.scrollTo({ top: 0 });
     setShowConfigPanel(false);
-    const hasBpm = !!song.bpm;
-    setBpm(song.bpm || 120);
+    const savedBpm = localStorage.getItem(`cifras-bpm-${song.id}`);
+    const currentBpm = savedBpm ? Number(savedBpm) : (song.bpm || 120);
+    setBpm(currentBpm);
+    const hasBpm = !!(song.bpm || savedBpm);
     setScrollMode(hasBpm ? 'bpm' : 'manual');
 
     if (autoStartScroll) {
@@ -146,6 +157,14 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   useEffect(() => {
     localStorage.setItem(`cifras-preferFlats-${song.id}`, String(preferFlats));
   }, [preferFlats, song.id]);
+
+  useEffect(() => {
+    localStorage.setItem(`cifras-bpm-${song.id}`, String(bpm));
+  }, [bpm, song.id]);
+
+  useEffect(() => {
+    localStorage.setItem('cifras-bpmScrollFactor', String(bpmScrollFactor));
+  }, [bpmScrollFactor]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
