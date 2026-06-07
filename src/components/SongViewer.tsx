@@ -462,12 +462,6 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
           >
             {showConfigPanel ? 'Ocultar Controles' : 'Mostrar Controles'}
           </button>
-          <button
-            onClick={onEdit}
-            className="px-3 py-1 text-xs font-medium rounded border border-gray-500/20 text-gray-400 hover:text-white hover:border-gray-500/40 transition-colors"
-          >
-            Editar
-          </button>
         </div>
       </div>
 
