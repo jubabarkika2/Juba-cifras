@@ -22,10 +22,7 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
     const saved = localStorage.getItem('cifras-theme');
     return (saved as 'light' | 'dark' | 'stage') || 'dark';
   });
-  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(() => {
-    const saved = localStorage.getItem('cifras-showConfigPanel');
-    return saved !== null ? saved === 'true' : true;
-  });
+  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(false);
 
   const [transposeOffset, setTransposeOffset] = useState(0);
   const [preferFlats, setPreferFlats] = useState(false);
@@ -56,6 +53,7 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   // Initialize song states, reset viewport and handle auto-start with stage preparation countdown delay
   useEffect(() => {
     window.scrollTo({ top: 0 });
+    setShowConfigPanel(false);
     const hasBpm = !!song.bpm;
     setBpm(song.bpm || 120);
     setScrollMode(hasBpm ? 'bpm' : 'manual');
