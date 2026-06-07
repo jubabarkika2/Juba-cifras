@@ -106,9 +106,18 @@ export default function App() {
                   ...pl.songIds.filter(id => allSongIds.includes(id)),
                   ...missingIds
                 ]));
+
+                // Sort alphabetically by title
+                const songsOrderMap = new Map<string, number>(songs.map((s, index) => [s.id, index]));
+                const sortedSongIds = [...updatedSongIds].sort((idA, idB) => {
+                  const idxA = songsOrderMap.get(idA) ?? 999999;
+                  const idxB = songsOrderMap.get(idB) ?? 999999;
+                  return idxA - idxB;
+                });
+
                 return {
                   ...pl,
-                  songIds: updatedSongIds
+                  songIds: sortedSongIds
                 };
               }
               return pl;
@@ -224,21 +233,34 @@ export default function App() {
   // Add an online generated AI song with direct playlists auto-save linkage
   const handleAddAISong = (newSong: Song, targetPlaylistIds: string[]) => {
     // Add to songs list and keep sorted alphabetically
+    let finalSongs: Song[] = [];
     setSongs(prev => {
       const updated = [...prev, newSong];
-      return updated.sort((a, b) => a.title.localeCompare(b.title));
+      finalSongs = updated.sort((a, b) => a.title.localeCompare(b.title));
+      return finalSongs;
     });
 
-    // Automatically link/add the new song ID to selected playlists
+    // Automatically link/add the new song ID to selected playlists and sort alphabetically
     if (targetPlaylistIds && targetPlaylistIds.length > 0) {
       setPlaylists(prev => prev.map(pl => {
         if (targetPlaylistIds.includes(pl.id)) {
-          if (!pl.songIds.includes(newSong.id)) {
-            return {
-              ...pl,
-              songIds: [...pl.songIds, newSong.id]
-            };
-          }
+          const isNew = !pl.songIds.includes(newSong.id);
+          const baseSongIds = isNew ? [...pl.songIds, newSong.id] : pl.songIds;
+
+          // Resolve full songs collection to lookup titles for alphabetical sorting inside target playlists
+          const combinedSongs = finalSongs.length > 0 ? finalSongs : [...songs, newSong];
+          const songMap = new Map<string, string>(combinedSongs.map(s => [s.id, s.title.toLowerCase()]));
+
+          const sortedSongIds = [...baseSongIds].sort((idA, idB) => {
+            const titleA = songMap.get(idA) || '';
+            const titleB = songMap.get(idB) || '';
+            return titleA.localeCompare(titleB);
+          });
+
+          return {
+            ...pl,
+            songIds: sortedSongIds
+          };
         }
         return pl;
       }));
@@ -317,6 +339,14 @@ export default function App() {
 
   // Add or update a Playlist
   const handleSavePlaylist = (playlistData: { id?: string; name: string; songIds: string[] }) => {
+    // Sort selected track IDs alphabetically by title
+    const songMap = new Map<string, string>(songs.map(s => [s.id, s.title.toLowerCase()]));
+    const sortedSongIds = [...playlistData.songIds].sort((idA, idB) => {
+      const titleA = songMap.get(idA) || '';
+      const titleB = songMap.get(idB) || '';
+      return titleA.localeCompare(titleB);
+    });
+
     if (playlistData.id) {
       // Update existing playlist
       setPlaylists(prev => {
@@ -325,7 +355,7 @@ export default function App() {
             return {
               ...pl,
               name: playlistData.name.trim(),
-              songIds: playlistData.songIds
+              songIds: sortedSongIds
             };
           }
           return pl;
@@ -339,7 +369,7 @@ export default function App() {
       const newPlaylist: Playlist = {
         id: newId,
         name: playlistData.name.trim(),
-        songIds: playlistData.songIds,
+        songIds: sortedSongIds,
         createdAt: Date.now()
       };
       
