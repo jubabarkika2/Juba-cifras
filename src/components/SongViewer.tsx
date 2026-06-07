@@ -21,6 +21,7 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   const [showBluetoothHelp, setShowBluetoothHelp] = useState(false);
   const [showConfigPanel, setShowConfigPanel] = useState(true);
   const [scrolledToTop, setScrolledToTop] = useState(true);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -98,6 +99,38 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   const handleIncreaseTranspose = () => setTransposeOffset(prev => prev === 11 ? -11 : prev + 1);
   const handleDecreaseTranspose = () => setTransposeOffset(prev => prev === -11 ? 11 : prev - 1);
 
+  const ALL_POSSIBLE_KEYS = [
+    'C', 'C#', 'Db', 'D', 'D#', 'Eb', 
+    'E', 'F', 'F#', 'Gb', 'G', 'G#', 
+    'Ab', 'A', 'A#', 'Bb', 'B'
+  ];
+
+  const handleSelectKey = (selectedKey: string) => {
+    const NOTE_INDEX: { [k: string]: number } = {
+      'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5,
+      'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
+    };
+    
+    const origVal = NOTE_INDEX[song.originalKey];
+    const targetVal = NOTE_INDEX[selectedKey];
+    
+    if (origVal !== undefined && targetVal !== undefined) {
+      let diff = targetVal - origVal;
+      // Bring difference to nearest interval within [-5, 6] for natural chord transitions
+      while (diff > 6) diff -= 12;
+      while (diff <= -6) diff += 12;
+      
+      setTransposeOffset(diff);
+      
+      // Auto-set sharps vs flats preference based on chosen target key
+      if (['Db', 'Eb', 'Gb', 'Ab', 'Bb'].includes(selectedKey)) {
+        setPreferFlats(true);
+      } else {
+        setPreferFlats(false);
+      }
+    }
+  };
+
   // Calculate current key name based on original key
   const getCurrentKeyName = () => {
     if (transposeOffset === 0) return song.originalKey;
@@ -126,35 +159,35 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
     light: {
       bg: 'bg-stone-50',
       text: 'text-stone-850',
-      cifra: 'text-indigo-700',
+      cifra: 'text-blue-600 font-semibold',
       line: 'border-b border-stone-200/50',
       header: 'text-stone-900 bg-stone-200/60 font-semibold',
-      lyrics: 'text-stone-700',
+      lyrics: 'text-stone-850',
       controlBg: 'bg-white/95 border-stone-200 text-stone-800 shadow-lg',
       panelBg: 'bg-stone-100 border-stone-200',
       activeBtn: 'bg-indigo-50 border-indigo-200 text-indigo-700',
     },
     dark: {
       bg: 'bg-zinc-950',
-      text: 'text-zinc-200',
+      text: 'text-white',
       cifra: 'text-sky-400',
       line: 'border-b border-zinc-900/40',
       header: 'text-zinc-100 bg-zinc-900/80 font-semibold',
-      lyrics: 'text-zinc-350',
+      lyrics: 'text-white font-medium',
       controlBg: 'bg-zinc-900/95 border-zinc-800 text-zinc-200 shadow-xl',
       panelBg: 'bg-zinc-900 border-zinc-800',
       activeBtn: 'bg-sky-500/10 border-sky-500/30 text-sky-400',
     },
-    stage: { // Yellow/Orange neon on pitch black - industry standard for gig sheets
+    stage: { // High contrast on pitch black - industry standard for gig sheets
       bg: 'bg-black',
-      text: 'text-zinc-100',
-      cifra: 'text-amber-400 font-bold',
+      text: 'text-white',
+      cifra: 'text-blue-400 font-bold',
       line: 'border-b border-neutral-900/30',
-      header: 'text-zinc-300 bg-amber-500/10 border border-amber-500/20 font-bold',
-      lyrics: 'text-zinc-300',
+      header: 'text-zinc-305 bg-blue-500/10 border border-blue-500/20 font-bold',
+      lyrics: 'text-white font-medium',
       controlBg: 'bg-zinc-950 border-zinc-900 shadow-2xl text-zinc-100',
-      panelBg: 'bg-zinc-950/80 border-amber-500/20',
-      activeBtn: 'bg-amber-400/10 border-amber-400/30 text-amber-400',
+      panelBg: 'bg-zinc-950/80 border-blue-500/20',
+      activeBtn: 'bg-blue-400/10 border-blue-400/30 text-blue-400',
     }
   };
 
@@ -180,11 +213,45 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
           <div>
             <h1 className="text-base sm:text-lg font-semibold tracking-tight leading-tight flex items-center gap-2">
               <span className={theme === 'light' ? 'text-stone-900' : 'text-white'}>{song.title}</span>
-              <span className="text-xs px-2 py-0.5 rounded bg-gray-500/10 text-gray-400 font-normal">
-                {getCurrentKeyName()}
-              </span>
             </h1>
-            <p className="text-xs text-gray-500">{song.artist} • {song.category}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs text-gray-500">{song.artist} • {song.category}</span>
+              <span className="text-2xs text-gray-400">•</span>
+              
+              {/* Ultra-compact inline key transposer in the header */}
+              <div className="flex items-center gap-1 bg-stone-500/10 px-1.5 py-0.5 rounded text-xs select-none">
+                <button
+                  onClick={handleDecreaseTranspose}
+                  className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
+                  title="-1 Semitom"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => setIsKeyModalOpen(true)}
+                  className="font-bold text-amber-400 px-1.5 py-0.5 rounded-md hover:bg-amber-500/20 active:scale-95 transition-all font-mono cursor-pointer border border-amber-500/25 flex items-center gap-0.5"
+                  title="Clique para escolher outro tom"
+                >
+                  {getCurrentKeyName()}
+                </button>
+                <button
+                  onClick={handleIncreaseTranspose}
+                  className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
+                  title="+1 Semitom"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+                {transposeOffset !== 0 && (
+                  <button
+                    onClick={handleResetTranspose}
+                    className="p-0.5 text-gray-400 hover:text-red-400 transition-colors ml-0.5 cursor-pointer"
+                    title="Resetar Tom"
+                  >
+                    <RefreshCw className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -208,60 +275,6 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
       {showConfigPanel && (
         <div className="max-w-4xl mx-auto px-4 mt-3 animate-fade-in">
           <div className={`p-4 rounded-xl border ${currentTheme.panelBg} space-y-4 shadow-sm text-sm`}>
-            
-            {/* Row 1: Transposition and Key Customization */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Mudar Tom (Transpose)</span>
-                <div className="flex items-center gap-2 mt-1">
-                  <button
-                    onClick={handleDecreaseTranspose}
-                    className="p-1 px-3 rounded text-sm font-semibold bg-gray-500/15 hover:bg-gray-500/25 text-gray-300 transition-colors"
-                    title="-1 Semitom"
-                  >
-                    <Minus className="w-4 h-4 inline" />
-                  </button>
-                  <span className="text-sm font-semibold px-3 min-w-[70px] text-center bg-gray-500/10 py-1 rounded">
-                    {transposeOffset > 0 ? `+${transposeOffset}` : transposeOffset} semitóns
-                  </span>
-                  <button
-                    onClick={handleIncreaseTranspose}
-                    className="p-1 px-3 rounded text-sm font-semibold bg-gray-500/15 hover:bg-gray-500/25 text-gray-300 transition-colors"
-                    title="+1 Semitom"
-                  >
-                    <Plus className="w-4 h-4 inline" />
-                  </button>
-                  {transposeOffset !== 0 && (
-                    <button
-                      onClick={handleResetTranspose}
-                      className="p-1.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-colors"
-                      title="Resetar Tom"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Flats vs sharps preferred selector */}
-              <div className="space-y-1.5 col-span-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Tipo de Acidentes</span>
-                <div className="flex gap-2 mt-1">
-                  <button
-                    onClick={() => setPreferFlats(false)}
-                    className={`flex-1 py-1 text-xs rounded border transition-colors ${!preferFlats ? currentTheme.activeBtn : 'border-gray-500/10 text-gray-400 bg-gray-500/5'}`}
-                  >
-                    Sustenidos (#)
-                  </button>
-                  <button
-                    onClick={() => setPreferFlats(true)}
-                    className={`flex-1 py-1 text-xs rounded border transition-colors ${preferFlats ? currentTheme.activeBtn : 'border-gray-500/10 text-gray-400 bg-gray-500/5'}`}
-                  >
-                    Bemóis (b)
-                  </button>
-                </div>
-              </div>
-            </div>
 
             {/* Row 2: Zoom, theme options, Auto-scrolling, Bluetooth indicator */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
@@ -345,7 +358,7 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
                 className="text-xs text-indigo-400 hover:text-indigo-350 flex items-center gap-1 font-medium transition-colors"
               >
                 <HelpCircle className="w-4 h-4" />
-                Como conectar pedal Bluetooth para passar páginas?
+                Como conectar o pedal Bluetooth
               </button>
               <div className="hidden sm:flex items-center gap-1.5 text-2xs text-gray-500">
                 <Smartphone className="w-3.5 h-3.5" />
@@ -398,6 +411,18 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
             className="font-mono text-left leading-normal whitespace-pre tracking-normal"
             style={{ fontSize: `${fontSize}px` }}
           >
+            <div className={`mb-3 pb-2 border-b ${theme === 'stage' ? 'border-zinc-900' : 'border-neutral-500/10'} select-none flex items-center gap-2`}>
+              <span className="text-gray-400 font-sans text-xs font-semibold uppercase tracking-wider">TOM:</span>
+              <button
+                onClick={() => setIsKeyModalOpen(true)}
+                className={`${currentTheme.cifra} font-bold hover:scale-105 active:scale-95 transition-all bg-blue-500/10 hover:bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/30 flex items-center gap-1 cursor-pointer font-sans`}
+                title="Clique para escolher outro tom"
+              >
+                {getCurrentKeyName()}
+                <span className="text-[10px] font-normal text-gray-500 font-sans ml-1">(mudar)</span>
+              </button>
+            </div>
+
             {currentLines.map((line, idx) => {
               if (line.type === 'pair') {
                 return (
@@ -440,6 +465,79 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
           </pre>
         </div>
       </div>
+
+      {/* Key Selector Modal Popover */}
+      {isKeyModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-start justify-start p-4 pt-16 sm:p-6 sm:pt-20 bg-black/15 animate-fade-in"
+          onClick={() => setIsKeyModalOpen(false)}
+        >
+          <div 
+            className={`w-full max-w-[290px] sm:max-w-xs rounded-xl p-4 border text-center transition-all shadow-2xl ${
+              theme === 'light' 
+                ? 'bg-stone-50 border-stone-200 text-stone-900 shadow-stone-400/30' 
+                : 'bg-zinc-900/95 border-zinc-800 text-white shadow-black/80'
+            }`}
+            onClick={(e) => e.stopPropagation()} // Prevent closing modal when clicking inside
+          >
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 font-sans">
+              Alterar Tom Geral
+            </h3>
+            
+            <p className="text-2xs text-gray-500 mb-3.5 font-sans leading-relaxed">
+              O tom atual é <span className="font-bold text-amber-500 font-mono">{getCurrentKeyName()}</span>.
+            </p>
+
+            {/* Grid of keys */}
+            <div className="grid grid-cols-4 gap-1 justify-center">
+              {ALL_POSSIBLE_KEYS.map((keyName) => {
+                const isCurrent = getCurrentKeyName() === keyName;
+                return (
+                  <button
+                    key={keyName}
+                    onClick={() => handleSelectKey(keyName)}
+                    className={`py-1.5 text-xs font-mono font-bold rounded-md transition-all border cursor-pointer active:scale-95 ${
+                      isCurrent
+                        ? 'bg-blue-600 border-blue-700 text-white shadow-sm font-extrabold scale-102'
+                        : theme === 'light'
+                          ? 'bg-white hover:bg-stone-100 border-stone-200 text-stone-850'
+                          : 'bg-zinc-800 hover:bg-zinc-750 border-zinc-700 text-gray-200'
+                    }`}
+                  >
+                    {keyName}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-neutral-500/10 flex flex-col gap-1.5">
+              <button
+                onClick={handleResetTranspose}
+                disabled={transposeOffset === 0}
+                className={`w-full py-1.5 text-2xs font-semibold rounded-md transition-colors ${
+                  transposeOffset === 0
+                    ? 'opacity-40 cursor-not-allowed bg-transparent text-gray-500'
+                    : theme === 'light'
+                      ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200'
+                      : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/15'
+                }`}
+              >
+                Voltar ao Tom Original
+              </button>
+              <button
+                onClick={() => setIsKeyModalOpen(false)}
+                className={`w-full py-1.5 text-2xs font-semibold rounded-md transition-colors ${
+                  theme === 'light'
+                    ? 'bg-stone-200 hover:bg-stone-300 text-stone-800'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                }`}
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
