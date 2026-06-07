@@ -1,0 +1,6 @@
+{
+  "name": "Aplicativo de Cifras",
+  "description": "Um aplicativo de cifras com transposição de tom, rolagem automática, controle por pedal Bluetooth e ajuste de tamanho de fonte para celulares.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
