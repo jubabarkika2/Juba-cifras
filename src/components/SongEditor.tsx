@@ -14,6 +14,7 @@ export default function SongEditor({ song, onSave, onCancel }: SongEditorProps) 
   const [artist, setArtist] = useState('');
   const [originalKey, setOriginalKey] = useState('C');
   const [category, setCategory] = useState('Pop');
+  const [bpm, setBpm] = useState<number | ''>('');
   const [rawCifra, setRawCifra] = useState('');
   const [error, setError] = useState('');
   const [parsedPreviewLines, setParsedPreviewLines] = useState<any[]>([]);
@@ -25,12 +26,14 @@ export default function SongEditor({ song, onSave, onCancel }: SongEditorProps) 
       setArtist(song.artist);
       setOriginalKey(song.originalKey || 'C');
       setCategory(song.category || 'Outros');
+      setBpm(song.bpm || '');
       setRawCifra(song.rawCifra);
     } else {
       setTitle('');
       setArtist('');
       setOriginalKey('C');
       setCategory('MPB');
+      setBpm('');
       setRawCifra('');
     }
   }, [song]);
@@ -63,7 +66,8 @@ export default function SongEditor({ song, onSave, onCancel }: SongEditorProps) 
       artist: artist.trim() || 'Artista Desconhecido',
       originalKey,
       category: category.trim() || 'Geral',
-      rawCifra: rawCifra
+      rawCifra: rawCifra,
+      bpm: bpm !== '' ? Number(bpm) : undefined
     });
   };
 
@@ -153,6 +157,22 @@ export default function SongEditor({ song, onSave, onCancel }: SongEditorProps) 
               placeholder="Ex: MPB, Pop, Rock, Sertanejo"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="song-bpm">
+              BPM Original (Batidas por Minuto)
+            </label>
+            <input
+              id="song-bpm"
+              type="number"
+              min="30"
+              max="300"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:-outline-offset-1 focus:outline-gray-400 focus:border-gray-400 transition-colors bg-white text-gray-900 placeholder:text-gray-400"
+              placeholder="Ex: 120 (Deixe em branco se não souber)"
+              value={bpm}
+              onChange={(e) => setBpm(e.target.value === '' ? '' : Number(e.target.value))}
             />
           </div>
         </div>

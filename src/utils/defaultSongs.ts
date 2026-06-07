@@ -6,6 +6,7 @@ export const DEFAULT_SONGS: Song[] = [
     title: 'Anunciação',
     artist: 'Alceu Valença',
     originalKey: 'G',
+    bpm: 120,
     category: 'MPB / Nordestina',
     rawCifra: `[Intro]
 G  Am  C  G
@@ -56,6 +57,7 @@ Eu já escuto os teus sinais`
     title: 'Como É Grande o Meu Amor por Você',
     artist: 'Roberto Carlos',
     originalKey: 'D',
+    bpm: 76,
     category: 'Jovem Guarda / Romântica',
     rawCifra: `[Intro]
 D  F#m  G  A7
@@ -98,6 +100,7 @@ Que eu tenho o maior amor do mundo por você`
     title: 'Garota de Ipanema',
     artist: 'Tom Jobim & Vinicius de Moraes',
     originalKey: 'F',
+    bpm: 115,
     category: 'Bossa Nova / MPB',
     rawCifra: `[Intro]
 Fmaj7  G7  Gm7  Gb7
@@ -148,6 +151,7 @@ Num doce balanço a caminho do mar`
     title: 'O Sol',
     artist: 'Vitor Kley',
     originalKey: 'A',
+    bpm: 124,
     category: 'Pop / Surf Rock',
     rawCifra: `[Intro]
 A  E  F#m  D

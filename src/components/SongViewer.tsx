@@ -3,7 +3,7 @@ import { Song, ViewerPreferences } from '../types';
 import { parseSongSheet, transposeParsedLines, ParsedLine } from '../utils/chordTransposer';
 import { 
   ArrowLeft, Minus, Plus, RefreshCw, ZoomIn, ZoomOut, Play, Pause, 
-  HelpCircle, Smartphone, Eye, Sparkles, ChevronUp, ChevronDown 
+  HelpCircle, Smartphone, Eye, Sparkles, ChevronUp, ChevronDown, Sliders
 } from 'lucide-react';
 
 interface SongViewerProps {
@@ -13,15 +13,141 @@ interface SongViewerProps {
 }
 
 export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
+  // Load preferences from localStorage or use defaults
+  const [fontSize, setFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem('cifras-fontSize');
+    return saved ? Number(saved) : 15;
+  });
+  const [theme, setTheme] = useState<'light' | 'dark' | 'stage'>(() => {
+    const saved = localStorage.getItem('cifras-theme');
+    return (saved as 'light' | 'dark' | 'stage') || 'dark';
+  });
+  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cifras-showConfigPanel');
+    return saved !== null ? saved === 'true' : true;
+  });
+
   const [transposeOffset, setTransposeOffset] = useState(0);
   const [preferFlats, setPreferFlats] = useState(false);
-  const [fontSize, setFontSize] = useState(15); // Default monospace font size in pixels
-  const [theme, setTheme] = useState<'light' | 'dark' | 'stage'>('dark');
-  const [autoScrollSpeed, setAutoScrollSpeed] = useState(0); // 0 = stopped, 1 to 10
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState<number>(() => {
+    const saved = localStorage.getItem('cifras-autoScrollSpeed');
+    return saved ? Number(saved) : 3;
+  });
+  const [isScrolling, setIsScrolling] = useState(false);
   const [showBluetoothHelp, setShowBluetoothHelp] = useState(false);
-  const [showConfigPanel, setShowConfigPanel] = useState(true);
   const [scrolledToTop, setScrolledToTop] = useState(true);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+
+  // Auto-start scroll preference
+  const [autoStartScroll, setAutoStartScroll] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cifras-autoStartScroll');
+    return saved !== null ? saved === 'true' : true; // default to true
+  });
+  const [isWarmupActive, setIsWarmupActive] = useState(false);
+
+  // Synchronized BPM states
+  const [bpm, setBpm] = useState<number>(() => song.bpm || 120);
+  const [scrollMode, setScrollMode] = useState<'manual' | 'bpm'>(() => song.bpm ? 'bpm' : 'manual');
+  const [bpmScrollFactor, setBpmScrollFactor] = useState<number>(5);
+  const [enableMetronomeVisual, setEnableMetronomeVisual] = useState<boolean>(false);
+  const [metronomeState, setMetronomeState] = useState<boolean>(false);
+  const lastTapRef = useRef<number[]>([]);
+
+  // Initialize song states, reset viewport and handle auto-start with stage preparation countdown delay
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    const hasBpm = !!song.bpm;
+    setBpm(song.bpm || 120);
+    setScrollMode(hasBpm ? 'bpm' : 'manual');
+
+    if (autoStartScroll) {
+      setIsScrolling(false);
+      setIsWarmupActive(true);
+      // Give the musician 1.5s to prepare their hands before starting to scroll down
+      const countdown = setTimeout(() => {
+        setIsScrolling(true);
+        setIsWarmupActive(false);
+      }, 1500);
+      return () => {
+        clearTimeout(countdown);
+        setIsWarmupActive(false);
+      };
+    } else {
+      setIsScrolling(false);
+      setIsWarmupActive(false);
+    }
+  }, [song.id, song.bpm, autoStartScroll]);
+
+  // Metronome Pulse Visual Effect
+  useEffect(() => {
+    if (!enableMetronomeVisual || bpm <= 0) return;
+
+    const intervalTime = 60000 / bpm; // ms per beat
+
+    const pulseInterval = setInterval(() => {
+      setMetronomeState(true);
+      const timeout = setTimeout(() => {
+        setMetronomeState(false);
+      }, 120); // flash for 120ms
+      return () => clearTimeout(timeout);
+    }, intervalTime);
+
+    return () => clearInterval(pulseInterval);
+  }, [enableMetronomeVisual, bpm]);
+
+  const handleTapTempo = () => {
+    const now = Date.now();
+    lastTapRef.current = [...lastTapRef.current.slice(-4), now];
+    if (lastTapRef.current.length > 1) {
+      const intervals = [];
+      for (let i = 1; i < lastTapRef.current.length; i++) {
+        intervals.push(lastTapRef.current[i] - lastTapRef.current[i - 1]);
+      }
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      const computedBpm = Math.round(60000 / avgInterval);
+      if (computedBpm >= 30 && computedBpm <= 300) {
+        setBpm(computedBpm);
+      }
+    }
+  };
+
+  // Synchronize dynamic song transposition overrides on active target change
+  useEffect(() => {
+    const savedOffset = localStorage.getItem(`cifras-transpose-${song.id}`);
+    const savedPreferFlats = localStorage.getItem(`cifras-preferFlats-${song.id}`);
+    setTransposeOffset(savedOffset ? parseInt(savedOffset, 10) : 0);
+    setPreferFlats(savedPreferFlats === 'true');
+  }, [song.id]);
+
+  // Persist general config preferences when modified
+  useEffect(() => {
+    localStorage.setItem('cifras-fontSize', String(fontSize));
+  }, [fontSize]);
+
+  useEffect(() => {
+    localStorage.setItem('cifras-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('cifras-showConfigPanel', String(showConfigPanel));
+  }, [showConfigPanel]);
+
+  useEffect(() => {
+    localStorage.setItem('cifras-autoScrollSpeed', String(autoScrollSpeed));
+  }, [autoScrollSpeed]);
+
+  useEffect(() => {
+    localStorage.setItem('cifras-autoStartScroll', String(autoStartScroll));
+  }, [autoStartScroll]);
+
+  // Persist custom transpose modifications per single song
+  useEffect(() => {
+    localStorage.setItem(`cifras-transpose-${song.id}`, String(transposeOffset));
+  }, [transposeOffset, song.id]);
+
+  useEffect(() => {
+    localStorage.setItem(`cifras-preferFlats-${song.id}`, String(preferFlats));
+  }, [preferFlats, song.id]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -63,11 +189,18 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
           // Optional speed up
           if (autoScrollSpeed < 10) {
             setAutoScrollSpeed(prev => Math.min(prev + 1, 10));
+            setIsScrolling(true);
           }
           break;
         case 'ArrowLeft':
           // Optional slow down or pause
-          setAutoScrollSpeed(prev => Math.max(prev - 1, 0));
+          setAutoScrollSpeed(prev => {
+            const next = Math.max(prev - 1, 0);
+            if (next === 0) {
+              setIsScrolling(false);
+            }
+            return next;
+          });
           break;
         default:
           break;
@@ -80,19 +213,26 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
 
   // Smooth Auto-Scrolling Engine
   useEffect(() => {
-    if (autoScrollSpeed === 0) return;
+    if (!isScrolling) return;
 
-    // Map speed level 1-10 to a polling timer
-    // Higher speed = smaller interval / larger pixel jump
     const intervalTime = 60; // ms per check
-    const step = 0.5 + (autoScrollSpeed * 0.25); // velocity index
+    let step = 0;
+
+    if (scrollMode === 'manual') {
+      if (autoScrollSpeed === 0) return;
+      step = 0.5 + (autoScrollSpeed * 0.25); // velocity index
+    } else { // BPM mode
+      // Calculation where default factor is 5 (middle) matching standard song speed
+      const multiplier = 0.05 * bpmScrollFactor;
+      step = (bpm / 60) * multiplier;
+    }
 
     const timer = setInterval(() => {
       window.scrollBy(0, step);
     }, intervalTime);
 
     return () => clearInterval(timer);
-  }, [autoScrollSpeed]);
+  }, [isScrolling, autoScrollSpeed, scrollMode, bpm, bpmScrollFactor]);
 
   // Handle Transposition Shift resets
   const handleResetTranspose = () => setTransposeOffset(0);
@@ -210,47 +350,109 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
           >
             <ArrowLeft className="w-5 h-5 text-gray-400 hover:text-white" />
           </button>
-          <div>
-            <h1 className="text-base sm:text-lg font-semibold tracking-tight leading-tight flex items-center gap-2">
-              <span className={theme === 'light' ? 'text-stone-900' : 'text-white'}>{song.title}</span>
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-gray-500">{song.artist} • {song.category}</span>
-              <span className="text-2xs text-gray-400">•</span>
-              
-              {/* Ultra-compact inline key transposer in the header */}
-              <div className="flex items-center gap-1 bg-stone-500/10 px-1.5 py-0.5 rounded text-xs select-none">
-                <button
-                  onClick={handleDecreaseTranspose}
-                  className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
-                  title="-1 Semitom"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => setIsKeyModalOpen(true)}
-                  className="font-bold text-amber-400 px-1.5 py-0.5 rounded-md hover:bg-amber-500/20 active:scale-95 transition-all font-mono cursor-pointer border border-amber-500/25 flex items-center gap-0.5"
-                  title="Clique para escolher outro tom"
-                >
-                  {getCurrentKeyName()}
-                </button>
-                <button
-                  onClick={handleIncreaseTranspose}
-                  className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
-                  title="+1 Semitom"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-                {transposeOffset !== 0 && (
-                  <button
-                    onClick={handleResetTranspose}
-                    className="p-0.5 text-gray-400 hover:text-red-400 transition-colors ml-0.5 cursor-pointer"
-                    title="Resetar Tom"
-                  >
-                    <RefreshCw className="w-2.5 h-2.5" />
-                  </button>
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Scroll Speed Controls - Slider or BPM */}
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs select-none ${
+                theme === 'light'
+                  ? 'bg-stone-100 border-stone-200 text-stone-750'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setIsScrolling(!isScrolling)}
+                className="flex items-center gap-1 mr-0.5 text-amber-500 dark:text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors cursor-pointer active:scale-90"
+                title={isScrolling ? 'Pausar Rolagem' : 'Iniciar Rolagem'}
+              >
+                {isScrolling ? (
+                  <Pause className="w-3.5 h-3.5 fill-amber-500/10" />
+                ) : (
+                  <Play className="w-3.5 h-3.5 fill-amber-500/10" />
                 )}
-              </div>
+              </button>
+
+              {scrollMode === 'manual' ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-3xs font-mono font-semibold tracking-wider leading-none w-3 text-center">{autoScrollSpeed}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="1"
+                    value={autoScrollSpeed}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setAutoScrollSpeed(val);
+                      if (val > 0) {
+                        setIsScrolling(true);
+                      } else {
+                        setIsScrolling(false);
+                      }
+                    }}
+                    className="w-16 sm:w-24 h-1 bg-gray-300 dark:bg-zinc-650 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-600 transition-all"
+                    title="Deslize para alterar a velocidade"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setBpm(prev => Math.max(30, prev - 2))}
+                    className="p-0.5 text-gray-400 hover:text-amber-400 cursor-pointer"
+                    title="-2 BPM"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-3xs sm:text-2xs font-mono font-bold text-amber-400 min-w-[54px] text-center flex items-center justify-center gap-1">
+                    {enableMetronomeVisual && (
+                      <span className={`w-1.5 h-1.5 rounded-full transition-colors ${metronomeState ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.8)]' : 'bg-gray-600'}`}></span>
+                    )}
+                    {bpm} <span className="text-[9px] text-gray-500 font-normal">BPM</span>
+                  </span>
+                  <button
+                    onClick={() => setBpm(prev => Math.min(300, prev + 2))}
+                    className="p-0.5 text-gray-400 hover:text-amber-400 cursor-pointer"
+                    title="+2 BPM"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <span className="text-2xs text-gray-600 hidden xs:inline">•</span>
+
+            {/* Ultra-compact inline key transposer */}
+            <div className="flex items-center gap-1 bg-stone-500/10 px-1.5 py-0.5 rounded text-xs select-none">
+              <button
+                onClick={handleDecreaseTranspose}
+                className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
+                title="-1 Semitom"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => setIsKeyModalOpen(true)}
+                className="font-bold text-amber-400 px-1.5 py-0.5 rounded hover:bg-amber-500/20 active:scale-95 transition-all font-mono cursor-pointer border border-amber-500/25 flex items-center gap-0.5"
+                title="Clique para escolher outro tom"
+              >
+                {getCurrentKeyName()}
+              </button>
+              <button
+                onClick={handleIncreaseTranspose}
+                className="p-0.5 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
+                title="+1 Semitom"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+              {transposeOffset !== 0 && (
+                <button
+                  onClick={handleResetTranspose}
+                  className="p-0.5 text-gray-400 hover:text-red-400 transition-colors ml-0.5 cursor-pointer"
+                  title="Resetar Tom"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -321,31 +523,218 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Rolagem Automática</span>
                 <div className="flex items-center gap-2 mt-1">
                   <button
-                    onClick={() => setAutoScrollSpeed(prev => prev > 0 ? 0 : 3)}
-                    className={`p-1.5 rounded transition-colors ${autoScrollSpeed > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-500/10 text-gray-300'}`}
-                    title={autoScrollSpeed > 0 ? 'Pausar' : 'Iniciar'}
+                    onClick={() => {
+                      if (isScrolling) {
+                        setIsScrolling(false);
+                      } else {
+                        setIsScrolling(true);
+                        if (scrollMode === 'manual') setAutoScrollSpeed(3);
+                      }
+                    }}
+                    className={`p-1.5 rounded transition-colors ${isScrolling ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-500/10 text-gray-300'}`}
+                    title={isScrolling ? 'Pausar' : 'Iniciar'}
                   >
-                    {autoScrollSpeed > 0 ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    {isScrolling ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   </button>
                   
-                  {autoScrollSpeed > 0 && (
+                  {isScrolling && scrollMode === 'manual' && (
                     <div className="flex items-center gap-1 bg-gray-500/5 px-2 py-0.5 rounded border border-gray-500/10">
                       <button 
-                        onClick={() => setAutoScrollSpeed(prev => Math.max(1, prev - 1))}
+                        onClick={() => {
+                          setAutoScrollSpeed(prev => {
+                            const next = Math.max(0, prev - 1);
+                            if (next === 0) {
+                              setIsScrolling(false);
+                            }
+                            return next;
+                          });
+                        }}
                         className="text-gray-400 hover:text-white px-1 text-sm font-bold"
                       >
                         -
                       </button>
                       <span className="text-2xs text-gray-300 font-mono">Vel: {autoScrollSpeed}</span>
                       <button 
-                        onClick={() => setAutoScrollSpeed(prev => Math.min(10, prev + 1))}
+                        onClick={() => {
+                          setAutoScrollSpeed(prev => Math.min(10, prev + 1));
+                          setIsScrolling(true);
+                        }}
                         className="text-gray-400 hover:text-white px-1 text-sm font-bold"
                       >
                         +
                       </button>
                     </div>
                   )}
-                  {autoScrollSpeed === 0 && <span className="text-2xs text-gray-400 italic">Parado</span>}
+                  {isScrolling && scrollMode === 'bpm' && (
+                    <span className="text-2xs text-amber-400 font-mono">
+                      Sinc. BPM: {bpm}
+                    </span>
+                  )}
+                  {!isScrolling && <span className="text-2xs text-gray-400 italic">Parado</span>}
+                </div>
+                <div className="pt-1.5 pl-0.5">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-zinc-400 hover:text-zinc-200 select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoStartScroll}
+                      onChange={(e) => setAutoStartScroll(e.target.checked)}
+                      className="rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-0 focus:ring-offset-0 w-3 h-3 cursor-pointer"
+                    />
+                    <span>Começar rolando automaticamente ao abrir</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom high-craftsmanship BPM synchronizer and metronome panel section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-500/10 text-left">
+              <div className="space-y-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                  Sincronização & Modo de Rolagem
+                </span>
+                <div className="flex bg-gray-500/10 p-1 rounded-xl gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setScrollMode('manual')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      scrollMode === 'manual' 
+                        ? 'bg-amber-500 text-white shadow-3xs' 
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    Velocidade Manual (1-10)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScrollMode('bpm')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      scrollMode === 'bpm' 
+                        ? 'bg-indigo-600 text-white shadow-3xs' 
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    Sincronizado BPM ({bpm} bpm)
+                  </button>
+                </div>
+
+                {scrollMode === 'bpm' && (
+                  <div className="space-y-3 p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10 animate-fade-in text-left">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-2xs font-semibold text-indigo-300 uppercase tracking-wider">Ajustar Tempo da Música</span>
+                      <button
+                        type="button"
+                        onClick={handleTapTempo}
+                        className="px-2 py-1 text-3xs font-bold uppercase rounded bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer active:scale-95 transition-all"
+                        title="Dê batidas sucessivas no botão para calcular o BPM"
+                      >
+                        ⚡ Tap Tempo (Batidas)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBpm(prev => Math.max(30, prev - 5))}
+                        className="p-1 px-2.5 font-bold rounded bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 w-10 text-center select-none cursor-pointer"
+                      >
+                        -5
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBpm(prev => Math.max(30, prev - 1))}
+                        className="p-1 px-2 font-bold rounded bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 w-8 text-center select-none cursor-pointer"
+                      >
+                        -1
+                      </button>
+                      
+                      <div className="flex-1 text-center font-mono font-bold text-base text-amber-400 flex items-center justify-center gap-1.5">
+                        <span className={`w-2.5 h-2.5 rounded-full ${metronomeState ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,1)]' : 'bg-gray-650'} transition-all duration-75 inline-block`}></span>
+                        <span>{bpm}</span>
+                        <span className="text-3xs text-gray-500 uppercase">BPM</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setBpm(prev => Math.min(300, prev + 1))}
+                        className="p-1 px-2 font-bold rounded bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 w-8 text-center select-none cursor-pointer"
+                      >
+                        +1
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBpm(prev => Math.min(300, prev + 5))}
+                        className="p-1 px-2.5 font-bold rounded bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 w-10 text-center select-none cursor-pointer"
+                      >
+                        +5
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-3xs text-gray-400">
+                        <span>Ajuste de Relação / Fator de Velocidade</span>
+                        <span className="font-mono text-indigo-300 font-bold">{bpmScrollFactor} / 10</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={bpmScrollFactor}
+                        onChange={(e) => setBpmScrollFactor(Number(e.target.value))}
+                        className="w-full h-1 bg-gray-300 dark:bg-zinc-650 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      />
+                      <span className="text-[10px] text-gray-400 leading-tight block">
+                        Arraste para calibrar e regular a rolagem ideal da sua cifra sincronizada. O valor padrão é 5.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 block">
+                  Metrônomo do Palco
+                </span>
+                <div className="bg-gray-500/5 p-3 rounded-xl border border-gray-500/10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-left">
+                      <span className="text-xs font-semibold block text-gray-350">Pisca Guia Visual</span>
+                      <span className="text-[10px] text-gray-500">Acompanhe a batida com um LED no palco</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEnableMetronomeVisual(!enableMetronomeVisual)}
+                      className={`px-3 py-1.5 text-2xs font-bold rounded-lg border transition-all cursor-pointer ${
+                        enableMetronomeVisual 
+                          ? 'bg-green-500/20 border-green-500/30 text-green-400 font-bold' 
+                          : 'bg-gray-500/10 border-gray-500/20 text-gray-400'
+                      }`}
+                    >
+                      {enableMetronomeVisual ? 'LED Ativo' : 'Ativar LED'}
+                    </button>
+                  </div>
+
+                  {enableMetronomeVisual && (
+                    <div className="flex items-center justify-center gap-1.5 py-2.5 bg-black/40 rounded-lg border border-gray-500/10 relative overflow-hidden">
+                      <div className="flex gap-4">
+                        {[1, 2, 3, 4].map((beatNum) => (
+                          <div 
+                            key={beatNum} 
+                            className={`w-3.5 h-3.5 rounded-full transition-all duration-100 ${
+                              metronomeState 
+                                ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.8)] scale-110' 
+                                : 'bg-zinc-800'
+                            }`} 
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-[10px] text-gray-400 leading-normal text-left">
+                    💡 **Como funciona**: Ao invés de velocidade fictícia de zero a dez, o sistema converte o **BPM Real** da faixa diretamente em deslocamento do scroll. Sua apresentação fica fluida de ponta a ponta!
+                  </div>
                 </div>
               </div>
             </div>
@@ -384,7 +773,13 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
       )}
 
       {/* Main Chord Render Space */}
-      <div className="max-w-4xl mx-auto px-4 mt-6">
+      <div className="max-w-4xl mx-auto px-4 mt-6 relative">
+        {isWarmupActive && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black px-4 py-2 rounded-full text-xs font-bold shadow-lg animate-pulse flex items-center gap-2 pointer-events-none border border-amber-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-black animate-ping" />
+            <span>Prepare-se! Rolagem começa em instantes...</span>
+          </div>
+        )}
         <div 
           className="p-6 sm:p-8 rounded-xl relative shadow-sm border border-neutral-200/10 overflow-x-auto"
           style={{ backgroundColor: theme === 'stage' ? '#000000' : undefined }}
@@ -411,6 +806,15 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
             className="font-mono text-left leading-normal whitespace-pre tracking-normal"
             style={{ fontSize: `${fontSize}px` }}
           >
+            <div className="mb-4 select-none font-sans whitespace-normal">
+              <h2 className={`text-xl sm:text-2xl font-bold tracking-tight ${theme === 'light' ? 'text-stone-900' : 'text-white'}`}>
+                {song.title}
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-400 mt-1">
+                {song.artist} • {song.category}
+              </p>
+            </div>
+
             <div className={`mb-3 pb-2 border-b ${theme === 'stage' ? 'border-zinc-900' : 'border-neutral-500/10'} select-none flex items-center gap-2`}>
               <span className="text-gray-400 font-sans text-xs font-semibold uppercase tracking-wider">TOM:</span>
               <button

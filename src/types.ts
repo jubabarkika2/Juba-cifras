@@ -6,6 +6,14 @@ export interface Song {
   rawCifra: string;
   category: string;
   createdAt?: number;
+  bpm?: number;
+}
+
+export interface Playlist {
+  id: string;
+  name: string;
+  songIds: string[];
+  createdAt: number;
 }
 
 export interface ViewerPreferences {

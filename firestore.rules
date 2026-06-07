@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Validates if song has correct properties and values
+    function isValidSong(data) {
+      return data.keys().hasAll(['title', 'artist', 'originalKey', 'rawCifra', 'category'])
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 150
+        && data.artist is string && data.artist.size() > 0 && data.artist.size() <= 150
+        && data.originalKey is string && data.originalKey.size() > 0 && data.originalKey.size() <= 15
+        && data.rawCifra is string && data.rawCifra.size() > 0 && data.rawCifra.size() <= 30000
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100;
+    }
+
+    // Helper: Validates if playlist has correct properties and values
+    function isValidPlaylist(data) {
+      return data.keys().hasAll(['name', 'songIds'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 150
+        && data.songIds is list && data.songIds.size() <= 1000;
+    }
+
+    // Songs Collection rules
+    match /songs/{songId} {
+      allow read: if true;
+      allow create: if isValidSong(request.resource.data);
+      allow update: if isValidSong(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Playlists Collection rules
+    match /playlists/{playlistId} {
+      allow read: if true;
+      allow create: if isValidPlaylist(request.resource.data);
+      allow update: if isValidPlaylist(request.resource.data);
+      allow delete: if true;
+    }
+  }
+}

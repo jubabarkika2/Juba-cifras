@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Song": {
+      "title": "Song",
+      "description": "Uma musica com titulo, artista, categoria e cifra",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Titulo da musica"
+        },
+        "artist": {
+          "type": "string",
+          "description": "Nome do artista ou banda"
+        },
+        "originalKey": {
+          "type": "string",
+          "description": "Tom original da musica"
+        },
+        "rawCifra": {
+          "type": "string",
+          "description": "A cifra correspondente com acordes textuais"
+        },
+        "category": {
+          "type": "string",
+          "description": "Estilo musical ou categoria"
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "Timestamp de criacao"
+        }
+      },
+      "required": ["title", "artist", "originalKey", "rawCifra", "category"]
+    },
+    "Playlist": {
+      "title": "Playlist",
+      "description": "Uma lista de reproducao contendo musicas salvas",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Nome da playlist"
+        },
+        "songIds": {
+          "type": "array",
+          "description": "IDs das musicas incluidas na playlist"
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "Timestamp de criacao"
+        }
+      },
+      "required": ["name", "songIds"]
+    }
+  },
+  "firestore": {
+    "songs": {
+      "schema": "Song",
+      "description": "Colecao global de cifras compartilhadas"
+    },
+    "playlists": {
+      "schema": "Playlist",
+      "description": "Colecao global de playlists criadas pelos usuarios"
+    }
+  }
+}
