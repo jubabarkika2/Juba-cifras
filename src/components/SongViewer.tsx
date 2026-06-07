@@ -9,10 +9,59 @@ import {
 interface SongViewerProps {
   song: Song;
   onBack: () => void;
-  onEdit: () => void;
+  onUpdateSong?: (updatedSong: Song) => void;
 }
 
-export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
+export default function SongViewer({ song, onBack, onUpdateSong }: SongViewerProps) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
+
+
+  // Handle dynamic AI chord sheet generation
+  useEffect(() => {
+    if (song.rawCifra === 'gerar' && !isGenerating) {
+      setIsGenerating(true);
+      setGenerationError(null);
+
+      fetch('/api/generate-chords', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: song.title,
+          artist: song.artist,
+          originalKey: song.originalKey
+        })
+      })
+        .then(res => {
+          if (!res.ok) {
+            throw new Error('Falha na resposta do servidor.');
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (data && data.cifra) {
+            if (onUpdateSong) {
+              onUpdateSong({
+                ...song,
+                rawCifra: data.cifra
+              });
+            }
+          } else {
+            throw new Error('Cifra vazia recebida do servidor.');
+          }
+          setIsGenerating(false);
+        })
+        .catch(err => {
+          console.error('Error generating cifra:', err);
+          setGenerationError('Erro ao gerar cifra por IA. Por favor, tente novamente.');
+          setIsGenerating(false);
+        });
+    }
+  }, [song.id, song.rawCifra]);
+
   // Load preferences from localStorage or use defaults
   const [fontSize, setFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('cifras-fontSize');
@@ -58,6 +107,16 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   const [enableMetronomeVisual, setEnableMetronomeVisual] = useState<boolean>(false);
   const [metronomeState, setMetronomeState] = useState<boolean>(false);
   const lastTapRef = useRef<number[]>([]);
+
+  // Synchronize BPM changes back to the main app database
+  useEffect(() => {
+    if (onUpdateSong && song.bpm !== bpm) {
+      onUpdateSong({
+        ...song,
+        bpm: bpm
+      });
+    }
+  }, [bpm, song.id]);
 
   // Initialize song states, reset viewport and handle auto-start with stage preparation countdown delay
   useEffect(() => {
@@ -349,6 +408,66 @@ export default function SongViewer({ song, onBack, onEdit }: SongViewerProps) {
   };
 
   const currentTheme = themeClassesMap[theme];
+
+  if (isGenerating) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center ${theme === 'light' ? 'bg-stone-50 text-stone-900' : 'bg-zinc-950 text-white'}`}>
+        <div className="space-y-6 max-w-sm">
+          <div className="relative flex items-center justify-center mx-auto">
+            {/* Spinning outward rings */}
+            <div className="w-16 h-16 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin"></div>
+            <Sparkles className="w-6 h-6 text-indigo-400 absolute animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold tracking-tight font-sans">IA Afinador Inteligente</h2>
+            <p className="text-sm font-semibold text-amber-500">{song.title}</p>
+            <p className="text-xs text-stone-400 font-sans">Artista: {song.artist}</p>
+          </div>
+          <p className="text-xs text-stone-400 leading-relaxed font-sans font-light">
+            Nossa Inteligência Artificial está gerando os acordes perfeitos e a letra para o tom de <span className="text-amber-500 font-bold font-mono">{song.originalKey}</span>...
+          </p>
+          <div className="pt-2">
+            <span className="text-3xs tracking-widest uppercase text-indigo-400 font-bold bg-indigo-500/10 px-3 py-1 rounded-full font-sans">
+              Sintonizando cifras reais...
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (generationError) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center ${theme === 'light' ? 'bg-stone-50 text-stone-900' : 'bg-zinc-950 text-white'}`}>
+        <div className="space-y-6 max-w-sm bg-red-500/5 border border-red-500/15 p-6 rounded-2xl">
+          <HelpCircle className="w-12 h-12 text-red-500 mx-auto animate-bounce" />
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold font-sans">Ops! Algo deu errado</h2>
+            <p className="text-xs text-stone-400 leading-relaxed font-sans">
+              Ocorreu um erro ao conectar ao servidor para gerar a cifra de <span className="font-semibold text-stone-200">{song.title}</span>.
+            </p>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={onBack}
+              className="flex-1 px-4 py-2.5 text-xs font-semibold rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-all text-gray-300 cursor-pointer text-center"
+            >
+              Voltar à Lista
+            </button>
+            <button
+              onClick={() => {
+                setGenerationError(null);
+                setIsGenerating(false);
+              }}
+              className="flex-1 px-4 py-2.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer text-center"
+            >
+              Tentar Novamente
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 

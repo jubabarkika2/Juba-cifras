@@ -5,7 +5,7 @@ import SongList from './components/SongList';
 import SongViewer from './components/SongViewer';
 import SongEditor from './components/SongEditor';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
 
 export default function App() {
   // 1. Initial State: Load songs from localStorage or use DEFAULT_SONGS
@@ -15,7 +15,14 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved) as Song[];
         if (parsed && parsed.length > 0) {
-          return parsed.sort((a, b) => a.title.localeCompare(b.title));
+          // Merge local storage songs with DEFAULT_SONGS catalog so new entries are loaded automatically
+          const merged = [...parsed];
+          DEFAULT_SONGS.forEach(defSong => {
+            if (!merged.some(s => s.id === defSong.id)) {
+              merged.push(defSong);
+            }
+          });
+          return merged.sort((a, b) => a.title.localeCompare(b.title));
         }
       } catch (e) {
         console.error('Error loading songs from localStorage:', e);
@@ -32,7 +39,18 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved) as Playlist[];
         if (parsed) {
-          return parsed.sort((a, b) => b.createdAt - a.createdAt);
+          // Robustly clean up any duplicates of "REPERTÓRIO1" that might have been created
+          const seenNames = new Set<string>();
+          const cleaned = parsed.filter(pl => {
+            if (pl.name === 'REPERTÓRIO1') {
+              if (seenNames.has('REPERTÓRIO1')) {
+                return false; // drop duplicate REPERTÓRIO1
+              }
+              seenNames.add('REPERTÓRIO1');
+            }
+            return true;
+          });
+          return cleaned.sort((a, b) => b.createdAt - a.createdAt);
         }
       } catch (e) {
         console.error('Error loading playlists from localStorage:', e);
@@ -41,7 +59,76 @@ export default function App() {
     return [];
   });
 
+  // 3. Keep REPERTÓRIO1 playlist synchronized with all song IDs (unless explicitly deleted by user)
+  useEffect(() => {
+    const isRepertorioDeleted = localStorage.getItem('cifras-repertorio1-deleted') === 'true';
+    if (isRepertorioDeleted) {
+      return;
+    }
+
+    if (songs.length > 0) {
+      const repertorioName = 'REPERTÓRIO1';
+      const allSongIds = songs.map(s => s.id);
+
+      setPlaylists(prev => {
+        // Filter out any duplicates to heal the state robustly
+        const seenNames = new Set<string>();
+        const existing = prev.filter(pl => {
+          if (pl.name === repertorioName) {
+            if (seenNames.has(repertorioName)) {
+              return false; // remove duplicate
+            }
+            seenNames.add(repertorioName);
+          }
+          return true;
+        });
+
+        const repertorioPlaylist = existing.find(p => p.name === repertorioName || p.id === 'playlist-repertorio1');
+
+        if (!repertorioPlaylist) {
+          const newPlaylist: Playlist = {
+            id: 'playlist-repertorio1',
+            name: repertorioName,
+            songIds: allSongIds,
+            createdAt: Date.now()
+          };
+          return [newPlaylist, ...existing];
+        } else {
+          // Check if we need to update IDs
+          const missingIds = allSongIds.filter(id => !repertorioPlaylist.songIds.includes(id));
+          const obsoleteIds = repertorioPlaylist.songIds.filter(id => !allSongIds.includes(id));
+          
+          if (missingIds.length > 0 || obsoleteIds.length > 0) {
+            return existing.map(pl => {
+              if (pl.id === repertorioPlaylist.id) {
+                // Ensure unique IDs, adding missing and removing deleted ones
+                const updatedSongIds = Array.from(new Set([
+                  ...pl.songIds.filter(id => allSongIds.includes(id)),
+                  ...missingIds
+                ]));
+                return {
+                  ...pl,
+                  songIds: updatedSongIds
+                };
+              }
+              return pl;
+            });
+          }
+        }
+        return existing; // return cleaned-up list if no song IDs changed
+      });
+    }
+  }, [songs]);
+
   const [view, setView] = useState<'list' | 'viewer' | 'editor'>('list');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    type?: 'danger' | 'warning';
+    onConfirm: () => void;
+  } | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Song | null>(null);
   
@@ -134,48 +221,98 @@ export default function App() {
     setEditingSong(null);
   };
 
+  // Add an online generated AI song with direct playlists auto-save linkage
+  const handleAddAISong = (newSong: Song, targetPlaylistIds: string[]) => {
+    // Add to songs list and keep sorted alphabetically
+    setSongs(prev => {
+      const updated = [...prev, newSong];
+      return updated.sort((a, b) => a.title.localeCompare(b.title));
+    });
+
+    // Automatically link/add the new song ID to selected playlists
+    if (targetPlaylistIds && targetPlaylistIds.length > 0) {
+      setPlaylists(prev => prev.map(pl => {
+        if (targetPlaylistIds.includes(pl.id)) {
+          if (!pl.songIds.includes(newSong.id)) {
+            return {
+              ...pl,
+              songIds: [...pl.songIds, newSong.id]
+            };
+          }
+        }
+        return pl;
+      }));
+    }
+  };
+
+  // Callback to update a single song field (e.g. dynamic chords or BPM) inside SongViewer
+  const handleUpdateSong = (updatedSong: Song) => {
+    setSongs(prev => {
+      const next = prev.map(s => s.id === updatedSong.id ? updatedSong : s);
+      return next.sort((a, b) => a.title.localeCompare(b.title));
+    });
+    if (selectedSong?.id === updatedSong.id) {
+      setSelectedSong(updatedSong);
+    }
+  };
+
   // Delete an existing song from local database
   const handleDeleteSong = (id: string) => {
     const songToDelete = songs.find(s => s.id === id);
     if (!songToDelete) return;
 
-    if (window.confirm(`Tem certeza que deseja excluir a música "${songToDelete.title}"?`)) {
-      // Remove from list
-      setSongs(prev => prev.filter(s => s.id !== id));
-      
-      // Remove this song ID from all playlists too to maintain integrity
-      setPlaylists(prev => prev.map(pl => {
-        if (pl.songIds.includes(id)) {
-          return {
-            ...pl,
-            songIds: pl.songIds.filter(sid => sid !== id)
-          };
-        }
-        return pl;
-      }));
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Excluir Música',
+      message: `Tem certeza que deseja excluir permanentemente a música "${songToDelete.title}"?`,
+      confirmLabel: 'Excluir',
+      type: 'danger',
+      onConfirm: () => {
+        // Remove from list
+        setSongs(prev => prev.filter(s => s.id !== id));
+        
+        // Remove this song ID from all playlists too to maintain integrity
+        setPlaylists(prev => prev.map(pl => {
+          if (pl.songIds.includes(id)) {
+            return {
+              ...pl,
+              songIds: pl.songIds.filter(sid => sid !== id)
+            };
+          }
+          return pl;
+        }));
 
-      showToast('Cifra excluída da sua biblioteca.', 'info');
-      
-      if (selectedSong?.id === id) {
-        setSelectedSong(null);
-        setView('list');
+        showToast('Cifra excluída da sua biblioteca.', 'info');
+        
+        if (selectedSong?.id === id) {
+          setSelectedSong(null);
+          setView('list');
+        }
       }
-    }
+    });
   };
 
   // Restores standard backup catalog songs offline
   const handleResetToDefaults = () => {
-    if (window.confirm('Deseja realmente restaurar as músicas demonstrativas originais? Isso substituirá todas as edições e removerá as adicionadas.')) {
-      // Load standard defaults
-      const restored = [...DEFAULT_SONGS].sort((a, b) => a.title.localeCompare(b.title));
-      setSongs(restored);
-      setPlaylists([]); // Clear playlists since references may point to custom deleted songs
-      
-      showToast('Biblioteca de demonstração restaurada.', 'info');
-      setSelectedSong(null);
-      setEditingSong(null);
-      setView('list');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Restaurar Dados Originais',
+      message: 'Deseja realmente restaurar as músicas clássicas demonstrativas originais? Isso substituirá todas as suas alterações e removerá as cifras adicionadas.',
+      confirmLabel: 'Restaurar',
+      type: 'warning',
+      onConfirm: () => {
+        // Load standard defaults
+        const restored = [...DEFAULT_SONGS].sort((a, b) => a.title.localeCompare(b.title));
+        localStorage.removeItem('cifras-repertorio1-deleted');
+        setSongs(restored);
+        setPlaylists([]); // Clear playlists since references may point to custom deleted songs
+        
+        showToast('Biblioteca de demonstração restaurada.', 'info');
+        setSelectedSong(null);
+        setEditingSong(null);
+        setView('list');
+      }
+    });
   };
 
   // Add or update a Playlist
@@ -216,10 +353,20 @@ export default function App() {
     const plToDelete = playlists.find(p => p.id === id);
     if (!plToDelete) return;
 
-    if (window.confirm(`Tem certeza que deseja excluir a playlist "${plToDelete.name}"?`)) {
-      setPlaylists(prev => prev.filter(p => p.id !== id));
-      showToast('Playlist excluída.', 'info');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Excluir Playlist',
+      message: `Tem certeza que deseja excluir permanentemente a playlist "${plToDelete.name}"?`,
+      confirmLabel: 'Excluir',
+      type: 'danger',
+      onConfirm: () => {
+        if (id === 'playlist-repertorio1' || plToDelete.name === 'REPERTÓRIO1') {
+          localStorage.setItem('cifras-repertorio1-deleted', 'true');
+        }
+        setPlaylists(prev => prev.filter(p => p.id !== id));
+        showToast('Playlist excluída.', 'info');
+      }
+    });
   };
 
   return (
@@ -232,7 +379,7 @@ export default function App() {
             initial={{ opacity: 0, y: -50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.9 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm max-w-sm w-full bg-stone-900 border-zinc-800 text-white"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-55 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm max-w-sm w-full bg-stone-900 border-zinc-800 text-white"
           >
             {toast.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -241,6 +388,70 @@ export default function App() {
             )}
             <span className="flex-1 font-medium">{toast.message}</span>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Elegant Custom Confirmation Modal (fixing web sandbox iframe alert block issues) */}
+      <AnimatePresence>
+        {confirmDialog && confirmDialog.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Dark fuzzy backdrop overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmDialog(null)}
+              className="fixed inset-0 bg-stone-950/60 backdrop-blur-xs"
+            />
+            
+            {/* Modal Dialog Content */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 12 }}
+              className="bg-white rounded-2xl border border-gray-150 shadow-xl max-w-sm w-full overflow-hidden relative z-10 p-5 space-y-5 text-left"
+            >
+              <div className="flex gap-4">
+                <div className={`p-3 rounded-2xl h-fit shrink-0 ${confirmDialog.type === 'warning' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-650'}`}>
+                  {confirmDialog.type === 'warning' ? (
+                    <RotateCcw className="w-5 h-5" />
+                  ) : (
+                    <Trash2 className="w-5 h-5" />
+                  )}
+                </div>
+                <div className="space-y-1 block max-w-xs overflow-hidden">
+                  <h3 className="text-base font-bold text-gray-955 font-sans leading-tight">
+                    {confirmDialog.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 font-sans leading-relaxed">
+                    {confirmDialog.message}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 justify-end pt-1">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-205 bg-white hover:bg-gray-50 text-gray-650 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    confirmDialog.onConfirm();
+                    setConfirmDialog(null);
+                  }}
+                  className={`px-4 py-2 text-xs font-semibold rounded-xl text-white transition-colors cursor-pointer ${
+                    confirmDialog.type === 'danger'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-amber-500 hover:bg-amber-600'
+                  }`}
+                >
+                  {confirmDialog.confirmLabel || 'Confirmar'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -275,6 +486,8 @@ export default function App() {
                 onSavePlaylist={handleSavePlaylist}
                 onDeletePlaylist={handleDeletePlaylist}
                 onImportBackup={handleImportBackup}
+                showAppToast={showToast}
+                onAddAISong={handleAddAISong}
               />
             </motion.div>
           )}
@@ -293,10 +506,7 @@ export default function App() {
                   setView('list');
                   setSelectedSong(null);
                 }}
-                onEdit={() => {
-                  setEditingSong(selectedSong);
-                  setView('editor');
-                }}
+                onUpdateSong={handleUpdateSong}
               />
             </motion.div>
           )}

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Song, Playlist } from '../types';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Plus, Music, Trash2, Edit3, BookOpen, AlertCircle, 
   RotateCcw, SlidersHorizontal, ChevronRight, FileCode,
   ListMusic, Check, X, ChevronDown, ChevronUp, FolderHeart,
-  Settings, Download, Upload, Database, Sliders, Moon, Sun, Monitor
+  Settings, Download, Upload, Database, Sliders, Moon, Sun, Monitor,
+  Sparkles
 } from 'lucide-react';
 
 interface SongListProps {
@@ -18,6 +20,8 @@ interface SongListProps {
   onSavePlaylist: (playlistData: { id?: string; name: string; songIds: string[] }) => void;
   onDeletePlaylist: (id: string) => void;
   onImportBackup: (importedSongs: Song[], importedPlaylists: Playlist[]) => void;
+  showAppToast?: (message: string, type?: 'success' | 'info') => void;
+  onAddAISong?: (song: Song, targetPlaylistIds: string[]) => void;
 }
 
 export default function SongList({
@@ -30,7 +34,9 @@ export default function SongList({
   onResetToDefaults,
   onSavePlaylist,
   onDeletePlaylist,
-  onImportBackup
+  onImportBackup,
+  showAppToast,
+  onAddAISong
 }: SongListProps) {
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'settings'>('songs');
@@ -109,7 +115,11 @@ export default function SongList({
         const importedPlaylists = json.playlists;
 
         if (!Array.isArray(importedSongs)) {
-          alert('Estrutura de músicas inválida no arquivo de backup.');
+          if (showAppToast) {
+            showAppToast('Erro: Arquivo com estrutura de músicas inválida no backup.', 'info');
+          } else {
+            alert('Estrutura de músicas inválida no arquivo de backup.');
+          }
           return;
         }
 
@@ -130,9 +140,17 @@ export default function SongList({
           }
         }
 
-        alert('Backup importado com sucesso! Músicas, playlists e configurações foram atualizados instantaneamente.');
+        if (showAppToast) {
+          showAppToast('Backup importado com sucesso!');
+        } else {
+          alert('Backup importado com sucesso! Músicas, playlists e configurações foram atualizados instantaneamente.');
+        }
       } catch (err) {
-        alert('Erro ao ler ou processar arquivo de backup. Certifique-se de que é um JSON válido exportado anteriormente.');
+        if (showAppToast) {
+          showAppToast('Erro ao ler ou processar arquivo de backup.', 'info');
+        } else {
+          alert('Erro ao ler ou processar arquivo de backup. Certifique-se de que é um JSON válido exportado anteriormente.');
+        }
         console.error(err);
       }
     };
@@ -153,6 +171,114 @@ export default function SongList({
   const [playlistName, setPlaylistName] = useState('');
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [searchPlaylistSongTerm, setSearchPlaylistSongTerm] = useState('');
+
+  // AI Search & Save states
+  const [isAISearchOpen, setIsAISearchOpen] = useState(false);
+  const [aiSearchTitle, setAiSearchTitle] = useState('');
+  const [aiSearchArtist, setAiSearchArtist] = useState('');
+  const [aiSearchSelectedKey, setAiSearchSelectedKey] = useState('G');
+  const [aiSearchCategory, setAiSearchCategory] = useState('Pop/Rock');
+  const [aiSearchPlaylistIds, setAiSearchPlaylistIds] = useState<string[]>(['playlist-repertorio1']);
+  const [aiIsGenerating, setAiIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiProgressMessage, setAiProgressMessage] = useState('');
+
+  // Reset check box selections if playlists list changes (ensure newly created playlists show up or align correctly)
+  useEffect(() => {
+    // Sync to default to REPERTÓRIO1 if it exists
+    if (!aiSearchPlaylistIds.includes('playlist-repertorio1') && playlists.some(p => p.id === 'playlist-repertorio1')) {
+      setAiSearchPlaylistIds(prev => Array.from(new Set([...prev, 'playlist-repertorio1'])));
+    }
+  }, [playlists]);
+
+  const handleTogglePlaylistSelection = (playlistId: string) => {
+    setAiSearchPlaylistIds(prev => 
+      prev.includes(playlistId)
+        ? prev.filter(id => id !== playlistId)
+        : [...prev, playlistId]
+    );
+  };
+
+  const handleTriggerAISearchAndSave = async () => {
+    if (!aiSearchTitle.trim()) {
+      setAiError('Por favor, informe o nome ou palavra-chave da música.');
+      return;
+    }
+
+    setAiIsGenerating(true);
+    setAiError(null);
+    setAiProgressMessage('Conectando ao banco de partituras...');
+
+    const messages = [
+      'Buscando a letra e alinhando cifras...',
+      'Analisando tons e decolando harmonias...',
+      'Formatando cabeçalhos e seções clássicas...',
+      'Aprimorando o posicionamento dos acordes...',
+      'Quase pronto: polindo os acordes finais...'
+    ];
+
+    let msgIndex = 0;
+    const interval = setInterval(() => {
+      if (msgIndex < messages.length) {
+        setAiProgressMessage(messages[msgIndex]);
+        msgIndex++;
+      }
+    }, 2000);
+
+    try {
+      const response = await fetch('/api/generate-chords', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: aiSearchTitle.trim(),
+          artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
+          originalKey: aiSearchSelectedKey
+        })
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Erro de comunicação com o servidor de IA.');
+      }
+
+      const data = await response.json();
+      if (!data.cifra || !data.cifra.trim()) {
+        throw new Error('Não foi possível gerar acordes para esta busca.');
+      }
+
+      // Format/Construct new Song Object
+      const newSong: Song = {
+        id: `song-${Math.random().toString(36).substring(2, 11)}`,
+        title: aiSearchTitle.trim(),
+        artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
+        originalKey: aiSearchSelectedKey,
+        rawCifra: data.cifra,
+        category: aiSearchCategory || 'Geral',
+        createdAt: Date.now()
+      };
+
+      if (onAddAISong) {
+        onAddAISong(newSong, aiSearchPlaylistIds);
+      }
+
+      // Reset fields
+      setAiSearchTitle('');
+      setAiSearchArtist('');
+      setIsAISearchOpen(false);
+      
+      if (showAppToast) {
+        showAppToast('Música adicionada com sucesso por Inteligência Artificial! ✨');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAiError(err.message || 'Houve um erro desconhecido na busca online. Tente novamente.');
+    } finally {
+      clearInterval(interval);
+      setAiIsGenerating(false);
+    }
+  };
 
   // Dynamically obtain available categories from song database + "Todas"
   const categories = ['Todas', ...Array.from(new Set(songs.map(s => s.category).filter(Boolean)))];
@@ -194,7 +320,11 @@ export default function SongList({
 
   const handleSavePlaylistClick = () => {
     if (!playlistName.trim()) {
-      alert('Por favor, informe o nome da playlist.');
+      if (showAppToast) {
+        showAppToast('Por favor, informe o nome da playlist.', 'info');
+      } else {
+        alert('Por favor, informe o nome da playlist.');
+      }
       return;
     }
     onSavePlaylist({
@@ -293,14 +423,30 @@ export default function SongList({
                 />
               </div>
               
-              <button
-                onClick={onAddSong}
-                className="px-5 py-2.5 bg-gray-950 hover:bg-gray-805 text-white font-medium rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-                id="btn-add-song"
-              >
-                <Plus className="w-4 h-4" />
-                Nova Música
-              </button>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setAiError(null);
+                    setAiSearchTitle(searchTerm); // Prefill if they typed something in the lookup bar
+                    setIsAISearchOpen(true);
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-650 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold rounded-xl text-sm transition-all flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md cursor-pointer"
+                  id="btn-ai-search"
+                  title="Buscar ou gerar cifra online via Inteligência Artificial"
+                >
+                  <Sparkles className="w-4.5 h-4.5 text-indigo-150 animate-pulse" />
+                  <span>Busca Online IA</span>
+                </button>
+
+                <button
+                  onClick={onAddSong}
+                  className="px-4 py-2.5 bg-gray-950 hover:bg-gray-800 text-white font-medium rounded-xl text-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                  id="btn-add-song"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nova Música</span>
+                </button>
+              </div>
             </div>
 
             {/* Row 2: Category Filter Horizontal Scrollbar */}
@@ -357,16 +503,8 @@ export default function SongList({
                     </div>
                   </div>
 
-                  {/* Action columns (Edit & Delete) */}
+                  {/* Action columns (Delete) */}
                   <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => onEditSong(song)}
-                      className="p-1.5 sm:p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                      title="Editar música"
-                      id={`btn-edit-${song.id}`}
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
                     <button
                       onClick={() => onDeleteSong(song.id)}
                       className="p-1.5 sm:p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
@@ -464,7 +602,7 @@ export default function SongList({
                       </div>
 
                       {/* Header controls and toggle dropdown arrow */}
-                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5 font-sans" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => handleOpenPlaylistModal(playlist)}
                           className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
@@ -481,6 +619,11 @@ export default function SongList({
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
+                        {playlist.id === 'playlist-repertorio1' && (
+                          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-50/80 text-indigo-650 font-sans border border-indigo-100/60 shrink-0">
+                            Automática
+                          </span>
+                        )}
                         <button
                           onClick={() => setExpandedPlaylistId(isExpanded ? null : playlist.id)}
                           className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition-colors cursor-pointer"
@@ -856,6 +999,194 @@ export default function SongList({
               >
                 <Check className="w-3.5 h-3.5" />
                 Salvar Playlist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RENDER INTERACTIVE AI ONLINE SEARCH MODAL */}
+      {isAISearchOpen && (
+        <div className="fixed inset-0 bg-black/60 z-55 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh] border border-indigo-100">
+            {/* Header with Sparkly Gradient banner */}
+            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-lg text-white">
+                  <Sparkles className="w-4.5 h-4.5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-950 text-base font-sans leading-tight">
+                    Busca de Cifras Inteligente (AI)
+                  </h3>
+                  <p className="text-[10px] text-gray-500 leading-none font-sans">
+                    Gerador automático de letras e acordes online
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !aiIsGenerating && setIsAISearchOpen(false)}
+                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer disabled:opacity-30"
+                disabled={aiIsGenerating}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {aiIsGenerating ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-4 text-center">
+                  <div className="relative flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+                    <Sparkles className="w-5 h-5 text-violet-500 absolute animate-pulse" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-gray-850 font-sans animate-pulse">
+                      {aiProgressMessage || 'Buscando cifra...'}
+                    </p>
+                    <p className="text-3xs text-gray-405 font-sans max-w-xs px-4">
+                      O robô inteligente da Gemini está mapeando as notas exatas e organizando a estrutura sob medida para você tocar.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 text-left">
+                  {/* Alert Error */}
+                  {aiError && (
+                    <div className="p-3 bg-red-50 border border-red-150 rounded-xl text-xs text-red-650 flex gap-2 items-start font-sans leading-relaxed">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-650" />
+                      <div>
+                        <span className="font-bold">Opa! ocorrência de erro: </span>
+                        {aiError}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Field 1: Song title name (Required) */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-650 uppercase tracking-widest block font-sans">
+                      Nome da Música <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Ainda Gosto Dela, Garota de Ipanema, Floods..."
+                      value={aiSearchTitle}
+                      onChange={(e) => {
+                        setAiSearchTitle(e.target.value);
+                        if (aiError) setAiError(null);
+                      }}
+                      className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:-outline-offset-1 focus:outline-gray-400 focus:border-gray-400 text-sm placeholder:text-gray-400 bg-white text-gray-950 font-sans"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Field 2: Artist (Optional but highly recommended) */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-650 uppercase tracking-widest block font-sans">
+                      Artista ou Banda <span className="text-gray-450 text-[9px] font-normal font-sans">(Recomendado)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Skank, Tom Jobim, Pantera..."
+                      value={aiSearchArtist}
+                      onChange={(e) => setAiSearchArtist(e.target.value)}
+                      className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:-outline-offset-1 focus:outline-gray-400 focus:border-gray-400 text-sm placeholder:text-gray-400 bg-white text-gray-950 font-sans"
+                    />
+                  </div>
+
+                  {/* Horizontal grid for Key / Category */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Key Dropdown selection */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-650 uppercase tracking-widest block font-sans">
+                        Tom de Preferência
+                      </label>
+                      <select
+                        value={aiSearchSelectedKey}
+                        onChange={(e) => setAiSearchSelectedKey(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white text-gray-955 focus:outline-gray-400 text-xs font-sans font-semibold cursor-pointer"
+                      >
+                        {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'Cm', 'Dm', 'Em', 'Am'].map(k => (
+                          <option key={k} value={k}>{k}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Category Selector */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-650 uppercase tracking-widest block font-sans">
+                        Gênero / Categoria
+                      </label>
+                      <select
+                        value={aiSearchCategory}
+                        onChange={(e) => setAiSearchCategory(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white text-gray-955 focus:outline-gray-400 text-xs font-sans font-semibold cursor-pointer"
+                      >
+                        {['Pop/Rock', 'Gospel', 'Sertanejo', 'Samba/Pagode', 'MPB', 'Bossa Nova', 'Reggae', 'Forró', 'Metal', 'Geral'].map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Target Playlists checklist scrollable */}
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[10px] font-bold text-gray-650 uppercase tracking-widest block font-sans">
+                      Adicionar Direto à(s) Playlist(s)
+                    </label>
+                    <p className="text-[9px] text-gray-450 leading-none font-sans">
+                      A música será salva em sua biblioteca principal e vinculada a estes repertórios:
+                    </p>
+                    <div className="border border-gray-150 rounded-xl divide-y divide-gray-100 max-h-[140px] overflow-y-auto bg-stone-50/10 p-1">
+                      {playlists.map(pl => {
+                        const isSelected = aiSearchPlaylistIds.includes(pl.id);
+                        return (
+                          <div
+                            key={`ai-target-pl-${pl.id}`}
+                            onClick={() => handleTogglePlaylistSelection(pl.id)}
+                            className="flex items-center justify-between p-2 hover:bg-stone-50 rounded-lg cursor-pointer transition-colors"
+                          >
+                            <span className="text-xs font-medium text-gray-800 font-sans">
+                              {pl.name} {pl.id === 'playlist-repertorio1' && ' (Automática)'}
+                            </span>
+                            <div className={`w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 transition-all ${
+                              isSelected 
+                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-3xs' 
+                                : 'border-gray-300 bg-white hover:border-gray-400'
+                            }`}>
+                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {playlists.length === 0 && (
+                        <div className="text-center py-4 text-3xs text-gray-400 italic font-sans font-medium">
+                          Nenhuma playlist cadastrada.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2 bg-stone-50">
+              <button
+                onClick={() => setIsAISearchOpen(false)}
+                className="px-4 py-2 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 text-gray-600 font-semibold rounded-xl text-xs transition-colors cursor-pointer disabled:opacity-35"
+                disabled={aiIsGenerating}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleTriggerAISearchAndSave}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold rounded-xl text-xs transition-all shadow-sm flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                disabled={aiIsGenerating || !aiSearchTitle.trim()}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Pesquisar e Salvar</span>
               </button>
             </div>
           </div>
