@@ -244,18 +244,23 @@ export default function SongList({
       } catch (fetchErr: any) {
         console.warn("Direct fetch to '/api/generate-chords' failed. Trying with window.location origin...", fetchErr);
         const absoluteEndpoint = `${window.location.protocol}//${window.location.host}/api/generate-chords`;
-        response = await fetch(absoluteEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            title: aiSearchTitle.trim(),
-            artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
-            originalKey: aiSearchSelectedKey
-          })
-        });
+        try {
+          response = await fetch(absoluteEndpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              title: aiSearchTitle.trim(),
+              artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
+              originalKey: aiSearchSelectedKey
+            })
+          });
+        } catch (secFetchErr: any) {
+          const fetchMsg = secFetchErr && secFetchErr.message ? String(secFetchErr.message) : String(secFetchErr);
+          throw new Error(`Erro de rede ao conectar à API: ${fetchMsg}`);
+        }
       }
 
       // Redesigned: read response once as text to prevent "stream already read" error
@@ -270,7 +275,26 @@ export default function SongList({
           // Response is not JSON (e.g. standard HTML error page from Vite/Express)
           throw new Error(`Erro de rede do servidor (Código ${response.status}). Corpo do erro: ${responseText.substring(0, 120)}...`);
         }
-        throw new Error(errorData.error || `Erro no servidor (Código ${response.status}) ao processar a cifra.`);
+        
+        let errorMsg = '';
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.error) {
+            if (typeof errorData.error === 'string') {
+              errorMsg = errorData.error;
+            } else if (typeof errorData.error === 'object') {
+              errorMsg = errorData.error.message || JSON.stringify(errorData.error);
+            } else {
+              errorMsg = String(errorData.error);
+            }
+          } else if (typeof errorData.message === 'string') {
+            errorMsg = errorData.message;
+          } else {
+            errorMsg = JSON.stringify(errorData);
+          }
+        } else {
+          errorMsg = responseText || `Erro no servidor (Código ${response.status})`;
+        }
+        throw new Error(errorMsg);
       }
 
       let data: any = {};
@@ -309,9 +333,29 @@ export default function SongList({
       }
     } catch (err: any) {
       console.error(err);
-      let descriptiveError = err.message || 'Houve um erro desconhecido na busca online. Tente novamente.';
-      if (err.name === 'TypeError' || descriptiveError.toLowerCase().includes('failed to fetch') || descriptiveError.toLowerCase().includes('network')) {
-        descriptiveError = 'Erro de Comunicação com Servidor: O navegador do celular não conseguiu obter dados da API (Failed to fetch). Certifique-se de que você está acessando sob HTTPS, conectado à internet e que o servidor local está online no AI Studio.';
+      let descriptiveError = '';
+      if (err) {
+        if (typeof err === 'string') {
+          descriptiveError = err;
+        } else if (err.message && typeof err.message === 'string') {
+          descriptiveError = err.message;
+        } else if (err.message && typeof err.message === 'object') {
+          descriptiveError = JSON.stringify(err.message);
+        } else {
+          try {
+            descriptiveError = JSON.stringify(err);
+          } catch (e) {
+            descriptiveError = String(err);
+          }
+        }
+      } else {
+        descriptiveError = 'Houve um erro desconhecido na busca online. Tente novamente.';
+      }
+      
+      if (descriptiveError.toLowerCase().includes('failed to fetch') || 
+          descriptiveError.toLowerCase().includes('network') || 
+          descriptiveError.toLowerCase().includes('erro de rede')) {
+        descriptiveError = `Erro de Comunicação com Servidor: O navegador do celular não conseguiu obter dados da API (Failed to fetch). Certifique-se de que você está acessando sob HTTPS, conectado à internet e que o servidor local está online no AI Studio. Detalhes: ${descriptiveError}`;
       }
       setAiError(descriptiveError);
     } finally {
