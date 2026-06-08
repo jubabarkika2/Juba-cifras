@@ -233,12 +233,8 @@ export default function App() {
   // Add an online generated AI song with direct playlists auto-save linkage
   const handleAddAISong = (newSong: Song, targetPlaylistIds: string[]) => {
     // Add to songs list and keep sorted alphabetically
-    let finalSongs: Song[] = [];
-    setSongs(prev => {
-      const updated = [...prev, newSong];
-      finalSongs = updated.sort((a, b) => a.title.localeCompare(b.title));
-      return finalSongs;
-    });
+    const updatedSongs = [...songs, newSong].sort((a, b) => a.title.localeCompare(b.title));
+    setSongs(updatedSongs);
 
     // Automatically link/add the new song ID to selected playlists and sort alphabetically
     if (targetPlaylistIds && targetPlaylistIds.length > 0) {
@@ -248,8 +244,7 @@ export default function App() {
           const baseSongIds = isNew ? [...pl.songIds, newSong.id] : pl.songIds;
 
           // Resolve full songs collection to lookup titles for alphabetical sorting inside target playlists
-          const combinedSongs = finalSongs.length > 0 ? finalSongs : [...songs, newSong];
-          const songMap = new Map<string, string>(combinedSongs.map(s => [s.id, s.title.toLowerCase()]));
+          const songMap = new Map<string, string>(updatedSongs.map(s => [s.id, s.title.toLowerCase()]));
 
           const sortedSongIds = [...baseSongIds].sort((idA, idB) => {
             const titleA = songMap.get(idA) || '';

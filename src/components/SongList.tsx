@@ -226,24 +226,60 @@ export default function SongList({
     }, 2000);
 
     try {
-      const response = await fetch('/api/generate-chords', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: aiSearchTitle.trim(),
-          artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
-          originalKey: aiSearchSelectedKey
-        })
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || 'Erro de comunicação com o servidor de IA.');
+      const apiEndpoint = '/api/generate-chords';
+      let response;
+      try {
+        response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            title: aiSearchTitle.trim(),
+            artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
+            originalKey: aiSearchSelectedKey
+          })
+        });
+      } catch (fetchErr: any) {
+        console.warn("Direct fetch to '/api/generate-chords' failed. Trying with window.location origin...", fetchErr);
+        const absoluteEndpoint = `${window.location.protocol}//${window.location.host}/api/generate-chords`;
+        response = await fetch(absoluteEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            title: aiSearchTitle.trim(),
+            artist: aiSearchArtist.trim() || 'Artista no Catálogo AI',
+            originalKey: aiSearchSelectedKey
+          })
+        });
       }
 
-      const data = await response.json();
+      // Redesigned: read response once as text to prevent "stream already read" error
+      // and display the raw response error if JSON parsing fails (such as 404 or 500 HTML)
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        let errorData: any = {};
+        try {
+          errorData = JSON.parse(responseText);
+        } catch (e) {
+          // Response is not JSON (e.g. standard HTML error page from Vite/Express)
+          throw new Error(`Erro de rede do servidor (Código ${response.status}). Corpo do erro: ${responseText.substring(0, 120)}...`);
+        }
+        throw new Error(errorData.error || `Erro no servidor (Código ${response.status}) ao processar a cifra.`);
+      }
+
+      let data: any = {};
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error('Falha no formato da resposta recebida pelo servidor de IA.');
+      }
+
       if (!data.cifra || !data.cifra.trim()) {
         throw new Error('Não foi possível gerar acordes para esta busca.');
       }
@@ -273,7 +309,11 @@ export default function SongList({
       }
     } catch (err: any) {
       console.error(err);
-      setAiError(err.message || 'Houve um erro desconhecido na busca online. Tente novamente.');
+      let descriptiveError = err.message || 'Houve um erro desconhecido na busca online. Tente novamente.';
+      if (err.name === 'TypeError' || descriptiveError.toLowerCase().includes('failed to fetch') || descriptiveError.toLowerCase().includes('network')) {
+        descriptiveError = 'Erro de Comunicação com Servidor: O navegador do celular não conseguiu obter dados da API (Failed to fetch). Certifique-se de que você está acessando sob HTTPS, conectado à internet e que o servidor local está online no AI Studio.';
+      }
+      setAiError(descriptiveError);
     } finally {
       clearInterval(interval);
       setAiIsGenerating(false);

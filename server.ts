@@ -11,7 +11,7 @@ function getAiClient() {
   if (!aiInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is required.");
+      throw new Error("A chave de API do Gemini (GEMINI_API_KEY) não está configurada no painel de segredos (Secrets) do seu projeto no AI Studio. Vá em Settings > Secrets e configure a variável GEMINI_API_KEY para habilitar a busca online por Inteligência Artificial.");
     }
     aiInstance = new GoogleGenAI({
       apiKey,
@@ -48,12 +48,33 @@ Regras estritas:
 4. Escreva a letra completa com os acordes.
 5. NÃO coloque textos explicativos ou cabeçalhos sobre a IA. Retorne apenas o texto da cifra formatado diretamente.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-      });
+      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+      let cifraText = "";
+      let lastError: any = null;
 
-      const cifraText = response.text || "";
+      for (const modelName of modelsToTry) {
+        try {
+          console.log(`Tentando gerar cifra com o modelo ${modelName}...`);
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+          });
+          cifraText = response.text || "";
+          if (cifraText && cifraText.trim()) {
+            console.log(`Música gerada com sucesso usando o modelo: ${modelName}`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Aviso: Erro ao tentar com ${modelName}:`, err.message || err);
+          lastError = err;
+        }
+      }
+
+      if (!cifraText || !cifraText.trim()) {
+        const errMsg = lastError?.message || "O servidor de IA retornou uma resposta sem conteúdo.";
+        throw new Error(`Falha nos modelos de IA (${modelsToTry.join(", ")}). Erro detalhado: ${errMsg}`);
+      }
+
       res.json({ cifra: cifraText });
     } catch (e: any) {
       console.error("Gemini Cifra generation error:", e);
